@@ -1,0 +1,171 @@
+Laborlicht
+==========
+
+Firmware for the [Laborlicht](https://www.das-labor.org/wiki/Labor_Licht) from
+[Das LABOR](https://das-labor.org). The software presented here is just for the
+basic version of the Laborlicht without a CAN or RFM12 controller (those
+modifications are rarely seen outside of 'Das LABOR' anyway).
+
+The Laborlicht is a small device featuring 18 ultra bright LEDs (6 for each
+primary color) to allow for atmospheric lighting. It is quite similar to the
+[Fnordlicht](http://www.lochraster.org/fnordlicht/), albeit smaller. It uses PWM
+on every color channel to approximate arbitrary colors given by the main
+program.
+
+In its unmodified form, the firmware does a quick color test on startup, fading
+through all colors of the rainbow in 15 seconds. Subsequently, it slows down
+and fades to a color for two minutes and holds that color for one minute.
+
+The colors are shown in the following order:
+
+* red
+* yellow
+* green
+* cyan
+* blue
+* purple
+* white (well, sort of)
+
+After reaching the white color, the Laborlicht fades to a random color (where
+each color channel has a minimum brightness of 25%) and starts over afterwards.
+
+
+Build
+=====
+
+Linux / UNIX
+------------
+
+Package names are based on Debian/Ubuntu repositories. Please adapt the names
+according to your Linux distribution (or BSD for that matter).
+
+* make (gmake on BSD)
+* gcc-avr
+* avr-libc
+* binutils-avr
+* avrdude
+
+Windows
+-------
+* AVR GCC toolchain for Windows, choose your poison:
+  * [WinAVR](http://winavr.sourceforge.net)
+    * already includes [avrdude](http://www.nongnu.org/avrdude/)
+    * straight forward download from SourceForge
+    * project abandoned in 2010, therefore quite outdated (avr-gcc 4.3.3)
+  * [Atmel AVR Toolchain for Windows](http://www.atmel.com/tools/atmelavrtoolchainforwindows.aspx)
+    * avrdude is not included, so you need to get it elsewhere
+    * homepage nags you with rather awkward registration process before download
+    * actively maintained, therefore fairly up to date
+* [Cygwin(64)](http://www.cygwin.com/)
+  * please install the 'make' package within Cygwin
+* [libusb-win32](http://sourceforge.net/apps/trac/libusb-win32/wiki) in case you
+  want to use an USBasp programmer device with avrdude
+
+Configure
+---------
+
+Building the firmware should work out of the box. However, if you want to tune
+some compiler flags, just edit the 'Makefile' directly.
+
+Compile
+-------
+
+To build the actual image file, just type:
+ > make 
+
+In case you build on BSD, just use 'gmake' instead of 'make'. This yields an
+'image.hex' file which you can flash to your AVR device.
+
+If you happen to use a USBasp programmer in conjunction with avrdude, you might
+want to try the make target 'flash'.
+
+Your own fading effects
+=======================
+
+Implementing your own color fading effects should be straight forward. Just take
+a look at the 'main()' function. If you have at least some basic knowledge of C,
+you will get the idea.
+
+To display an arbitrary color, just change the current brightness values of the
+three primary colors (e.g. dark yellow):
+
+```C
+g_color[channel_red] = 127;
+g_color[channel_green] = 127;
+g_color[channel_blue] = 0;
+```
+
+There are eight predefined colors as well:
+```C
+typedef enum color_preset_e {
+    color_black,
+    color_red,
+    color_yellow,
+    color_green,
+    color_cyan,
+    color_blue,
+    color_purple,
+    color_white,
+    color_MAX /* not a color, just a boundary */
+} color_preset_t;
+```
+
+You can set them with the 'set_color_preset()' function:
+```C
+set_color_preset(color_preset_t preset);
+```
+
+You can also fade to a preset from the currently shown color using the following
+function:
+```C
+color_fade_preset(color_preset_t preset, unsigned char steps, unsigned int t);
+```
+The value 'steps' is the number of intermediate steps between the current and
+the target color, the value 't' determines how long a step should last (in
+milliseconds). This example will cause the Laborlicht to fade to red in 255
+steps over the course of one minute:
+```C
+color_fade_preset(color_red, 255, 235);
+```
+
+To fade to a custom color, just fill up an array of three bytes and hand it over
+to this function:
+```C
+color_fade(uint8_t *color, uint8_t steps, uint16_t delay);
+```
+Just like:
+```C
+unsigned char my_color = {192 /*red*/, 64 /*green*/, 16 /*blue*/};
+color_fade(my_color, 255, 235);
+```
+
+In case you're open for surprises, you can fade to a random color, too.
+```C
+ color_fade_random(255, 235);
+```
+
+Implementation details
+======================
+
+The Laborlicht is quite an old project with commits dating back to early 2006.
+After roughly ten years, the code was in a rather bad shape. It was not
+compilable with recent versions of avr-gcc and avr-libc, because the way how
+interrupt handlers have to be implemented has changed over the years, amongst
+other things.
+
+So here it is, a rewrite of the basic Laborlicht firmware. The PWM interrupts
+are now generated by the second 8 bit timer of the ATmega8, allowing for a
+tightly written interrupt handler. The latter is now implemented in AVR assembly
+and it is actually faster than the timing interrupt of the lowest brightness.
+The old code just conflated the first nine levels to the same brightness. With
+the new code, the refresh rate of the LEDs is roughly 80 Hz featuring 256
+different brightness levels.
+
+However, support for 8 MHz devices is gone (unless you can live with a refresh
+rate of 40 Hz), so you better resolder your board if you happen to have a
+different clock than 16 MHz.
+
+Another caveat: In order to save some code size in the interrupt handler, even
+the pins of PORTC not connected to the color channels are cleared on every
+interrupt. Keep that in mind if you plan to connect additional stuff to that
+port.

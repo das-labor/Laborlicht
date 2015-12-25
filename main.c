@@ -1,245 +1,262 @@
-#include <inttypes.h>
 #include <avr/io.h>
 #include <avr/eeprom.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
 #include <avr/pgmspace.h>
+#include <stdlib.h>
+
+#define MASK_RED   _BV(PC0)
+#define MASK_GREEN _BV(PC1)
+#define MASK_BLUE  _BV(PC2)
+#define PORTFL PORTC
+#define DDRFL  DDRC
 
 #define PW(a) pgm_read_word(&(a))
 
-#ifdef __AVR_ATmega8__
-#    define MASK_RED   (1<<PC0)
-#    define MASK_GREEN (1<<PC1)
-#    define MASK_BLUE  (1<<PC2)
-#    define PORTFL PORTC
-#    define DDRFL DDRC
-#else
-#    define MASK_RED   0x07
-#    define MASK_GREEN 0x18
-#    define MASK_BLUE  0x60
-#    define PORTFL PORTA
-#    define DDRFL DDRA
-#endif
+// wait timer
+static void init_timer0(void) {
+    // clk/64
+    TCCR0 = _BV(CS01) | _BV(CS00);
+}
 
-#if F_CPU == 16000000
-
-uint16_t const PROGMEM timeTable [] = {
-       0,    0,    0,    0,    0,    0,    0,    0,
-     210,   56,   62,   69,   75,   82,   89,   95,
-     102,  108,  115,  121,  128,  135,  141,  148,
-     154,  161,  167,  174,  180,  187,  194,  200,
-     207,  213,  220,  226,  233,  239,  246,  253,
-     259,  266,  272,  279,  285,  292,  299,  305,
-     312,  318,  325,  331,  338,  344,  351,  358,
-     364,  371,  377,  384,  390,  397,  404,  410,
-     417,  423,  430,  436,  443,  449,  456,  463,
-     469,  476,  482,  489,  495,  502,  509,  515,
-     522,  528,  535,  541,  548,  554,  561,  568,
-     574,  581,  587,  594,  600,  607,  614,  620,
-     627,  633,  640,  646,  653,  659,  666,  673,
-     679,  686,  692,  699,  705,  712,  718,  725,
-     732,  738,  745,  751,  758,  764,  771,  778,
-     784,  791,  797,  804,  810,  817,  823,  830,
-     837,  843,  850,  856,  863,  869,  876,  883,
-     889,  896,  902,  909,  915,  922,  928,  935,
-     942,  948,  955,  961,  968,  974,  981,  988,
-     994, 1001, 1007, 1014, 1020, 1027, 1033, 1040,
-    1047, 1053, 1060, 1066, 1073, 1079, 1086, 1093,
-    1099, 1106, 1112, 1119, 1125, 1132, 1138, 1145,
-    1152, 1158, 1165, 1171, 1178, 1184, 1191, 1197,
-    1204, 1211, 1217, 1224, 1230, 1237, 1243, 1250,
-    1257, 1263, 1270, 1276, 1283, 1289, 1296, 1302,
-    1309, 1316, 1322, 1329, 1335, 1342, 1348, 1355,
-    1362, 1368, 1375, 1381, 1388, 1394, 1401, 1407,
-    1414, 1421, 1427, 1434, 1440, 1447, 1453, 1460,
-    1467, 1473, 1480, 1486, 1493, 1499, 1506, 1512,
-    1519, 1526, 1532, 1539, 1545, 1552, 1558, 1565,
-    1572, 1578, 1585, 1591, 1598, 1604, 1611, 1617,
-    1624, 1631, 1637, 1644, 1650, 1657, 1663, 1670
-};
-
-#elif F_CPU==8000000
-
-uint16_t const PROGMEM timeTable [] = {
-      0,   0,   0,   0,   0,   0,   0,   0,
-    105,  28,  31,  35,  75,  38,  45,  48,
-     51,  54,  57,  60,  64,  67,  70,  74,
-     77,  81,  84,  87,  90,  94,  97, 100,
-    104, 107, 110, 113, 117, 120, 123, 127,
-    130, 133, 136, 140, 143, 146, 150, 153,
-    156, 159, 163, 166, 169, 172, 176, 179,
-    182, 186, 189, 192, 195, 199, 202, 205,
-    209, 212, 215, 218, 222, 225, 228, 232,
-    235, 238, 241, 245, 248, 251, 255, 258,
-    261, 264, 268, 271, 274, 277, 281, 284,
-    287, 291, 294, 297, 300, 304, 307, 310,
-    314, 317, 320, 323, 327, 330, 333, 337,
-    340, 343, 346, 350, 353, 356, 359, 363,
-    366, 369, 373, 376, 379, 382, 386, 389,
-    392, 396, 399, 402, 405, 409, 412, 415,
-    419, 422, 425, 428, 432, 435, 438, 442,
-    445, 448, 451, 455, 458, 461, 464, 468,
-    471, 474, 478, 481, 484, 487, 491, 494,
-    497, 501, 504, 507, 510, 514, 517, 520,
-    524, 527, 530, 533, 537, 540, 543, 547,
-    550, 553, 556, 560, 563, 566, 569, 573,
-    576, 579, 583, 586, 589, 592, 596, 599,
-    602, 606, 609, 612, 615, 619, 622, 625,
-    629, 632, 635, 638, 642, 645, 648, 651,
-    655, 658, 661, 665, 668, 671, 674, 678,
-    681, 684, 688, 691, 694, 697, 701, 704,
-    707, 711, 714, 717, 720, 724, 727, 730,
-    734, 737, 740, 743, 747, 750, 753, 756,
-    760, 763, 766, 770, 773, 776, 779, 783,
-    786, 789, 793, 796, 799, 802, 806, 809,
-    812, 816, 819, 822, 825, 829, 832, 835
-};
-
-#endif
-
-uint8_t color[3] = {0, 0, 0};
-
-
-ISR(TIMER1_COMPA_vect) {
-    static uint8_t bright = 7;
-    TCNT1 = 0;
-    OCR1A  = PW(timeTable[++bright]);
-
-    if (bright < color[0]) { // red
-        PORTFL |= MASK_RED;
-    } else {
-        PORTFL &= ~MASK_RED;
+static void wait(unsigned int ms){
+    for (; ms--;){
+        TCNT0 = 6;                   // overflow after 250 ticks, 1000 Hz
+        while (!(TIFR & _BV(TOV0))); // wait for timer overflow flag
+        TIFR = _BV(TOV0);            // reset overflow flag
     }
-    if (bright < color[1]) { // green
-        PORTFL |= MASK_GREEN;
-    } else {
-        PORTFL &= ~MASK_GREEN;
-    }
-    if (bright < color[2]) { // blue
-        PORTFL |= MASK_BLUE;
-    } else {
-        PORTFL &= ~MASK_BLUE;
-    }
-    if (bright == 255)
-        bright = 7;
 }
 
 
-void timer1_on() {
-    TCCR1A = 0;
-    TCCR1B = 1; // Counter clk
-    OCR1A  = 100;
-    TCNT1  = 0;
-    TIFR   = (1 << OCF1A);
-    TIMSK  = (1 << OCIE1A);
+typedef enum color_channel_e {
+    channel_red,
+    channel_green,
+    channel_blue,
+    channel_MAX,
+} color_channel_t;
+
+typedef enum color_preset_e {
+    color_black,
+    color_red,
+    color_yellow,
+    color_green,
+    color_cyan,
+    color_blue,
+    color_purple,
+    color_white,
+    color_MAX
+} color_preset_t;
+
+unsigned char const PROGMEM g_color_presets[color_MAX][channel_MAX] = {
+    {  0,   0,   0},
+    {255,   0,   0},
+    {255, 255,   0},
+    {  0, 255,   0},
+    {  0, 255, 255},
+    {  0,   0, 255},
+    {255,   0, 255},
+    {255, 255, 255}
+};
+
+unsigned char g_color[channel_MAX] = {0};
+
+void static set_color_preset(color_preset_t preset) {
+    g_color[channel_red]   = PW(g_color_presets[preset][channel_red]);
+    g_color[channel_green] = PW(g_color_presets[preset][channel_green]);
+    g_color[channel_blue]  = PW(g_color_presets[preset][channel_blue]);
+}
+
+#define INTERIM_UPSCALE(a) ((a) * 128)
+#define INTERIM_DOWNSCALE(a) ((a) / 128)
+
+void static color_fade(unsigned char const *fade_color,
+                       unsigned char const steps,
+                       unsigned int delay) {
+    int interim_color[channel_MAX];
+    int offset[channel_MAX];
+    for (color_channel_t channel = 0; channel < channel_MAX; ++channel) {
+        interim_color[channel] = INTERIM_UPSCALE(g_color[channel]);
+        offset[channel] =
+            INTERIM_UPSCALE(fade_color[channel] - g_color[channel]) / steps;
+    }
+
+    for (unsigned char step = 0; step < steps; ++step) {
+        for (color_channel_t channel = 0; channel < channel_MAX; ++channel) {
+            g_color[channel] =
+                INTERIM_DOWNSCALE(interim_color[channel] += offset[channel]);
+        }
+        wait(delay);
+    }
+
+    // counter measure against rounding errors
+    for (color_channel_t channel = 0; channel < channel_MAX; ++channel) {
+        g_color[channel] = fade_color[channel];
+    }
+}
+
+static void color_fade_preset(color_preset_t const preset,
+                              unsigned char const steps,
+                              unsigned int delay) {
+    unsigned char preset_color[channel_MAX];
+    for (unsigned char channel = 0; channel < channel_MAX; ++channel) {
+        preset_color[channel] = PW(g_color_presets[preset][channel]);
+    }
+    color_fade(preset_color, steps, delay);
+}
+
+// fade to a random color (minimum brightness per channel is 64);
+static void color_fade_random(unsigned char const steps,
+                              unsigned int delay) {
+    unsigned char random_color[channel_MAX];
+    for (color_channel_t channel = 0; channel < channel_MAX; ++channel) {
+        random_color[channel] = (rand() % 192) + 64;
+    }
+    color_fade(random_color, steps, delay);
+}
+
+unsigned char const PROGMEM g_cie_table[256] = {
+     10,  11,  10,  11,  11,  10,  11,  11,
+     10,  11,  11,  10,  11,  11,  11,  10,
+     11,  11,  10,  11,  11,  10,  11,  12,
+     11,  13,  12,  13,  13,  14,  14,  14,
+     15,  16,  15,  17,  16,  17,  18,  18,
+     18,  19,  19,  20,  20,  21,  21,  22,
+     22,  23,  23,  24,  24,  25,  25,  26,
+     26,  27,  28,  28,  28,  30,  30,  30,
+     31,  31,  33,  32,  34,  34,  35,  35,
+     36,  36,  38,  37,  39,  39,  40,  41,
+     41,  42,  42,  44,  44,  44,  46,  46,
+     47,  47,  49,  49,  50,  50,  52,  52,
+     53,  54,  54,  55,  56,  57,  58,  58,
+     60,  60,  61,  62,  62,  64,  64,  65,
+     66,  67,  68,  69,  69,  71,  71,  73,
+     73,  74,  75,  76,  77,  78,  78,  80,
+     81,  81,  83,  84,  84,  86,  86,  88,
+     88,  90,  91,  91,  93,  93,  95,  96,
+     96,  98,  99, 100, 101, 102, 103, 105,
+    105, 106, 108, 108, 110, 111, 112, 113,
+    115, 115, 117, 117, 119, 120, 122, 122,
+    124, 124, 126, 127, 129, 129, 131, 132,
+    134, 134, 136, 137, 138, 140, 140, 142,
+    144, 144, 146, 147, 149, 150, 151, 152,
+    154, 155, 156, 158, 159, 160, 162, 163,
+    165, 166, 167, 168, 170, 172, 173, 174,
+    175, 177, 179, 180, 181, 183, 184, 186,
+    187, 189, 190, 191, 193, 195, 196, 197,
+    199, 201, 202, 203, 205, 207, 208, 209,
+    212, 212, 215, 216, 217, 219, 221, 222,
+    224, 225, 227, 229, 230, 232, 233, 236,
+    236, 239, 240, 241, 244, 245, 247, 248
+};
+
+// ISR timer
+static void init_timer2(void) {
+    // CTC mode, OC2 disconnected, clk/8
+    TCCR2 = _BV(WGM21) | _BV(CS21);
+    // initialize compare match and counter registers
+    OCR2 = PW(g_cie_table[0]);
+    TCNT2 = 0;
+    // clear compare match flag and enable compare match interrupt handler
+    TIFR   |= _BV(OCF2);
+    TIMSK  |= _BV(OCIE2);
+}
+
+ISR(TIMER2_COMP_vect) {
+    // duty cycle from 0 (0%) to 255 (100%)
+    static unsigned char duty_cycle = 0;
+
+    __asm__ volatile(
+        "isr_start:"                         "\n\t"
+            "clr r16"                        "\n\t"
+            "inc %[duty_cycle]"              "\n\t"
+
+        "cie_to_ocr2:"                       "\n\t"
+            "add r30,%[duty_cycle]; ZL"      "\n\t"
+            "adc r31,__zero_reg__ ; ZH"      "\n\t"
+            "lpm __tmp_reg__,Z"              "\n\t"
+            "out %[ocr2],__tmp_reg__"        "\n\t"
+
+        "red_cmp:"                           "\n\t"
+            "ld __tmp_reg__,Y+"              "\n\t"
+            "cp __tmp_reg__,%[duty_cycle]"   "\n\t"
+            "brlo green_cmp"                 "\n\t"
+            "ori r16,%[mask_red]"            "\n\t"
+
+        "green_cmp:"                         "\n\t"
+            "ld __tmp_reg__,Y+"              "\n\t"
+            "cp __tmp_reg__,%[duty_cycle]"   "\n\t"
+            "brlo blue_cmp"                  "\n\t"
+            "ori r16,%[mask_green]"          "\n\t"
+
+        "blue_cmp:"                          "\n\t"
+            "ld __tmp_reg__,Y+"              "\n\t"
+            "cp __tmp_reg__,%[duty_cycle]"   "\n\t"
+            "brlo color_set"                 "\n\t"
+            "ori r16,%[mask_blue]"           "\n\t"
+
+        "color_set:"                         "\n\t"
+            "out %[portfl],r16"              "\n\t"
+
+            : [duty_cycle] "+d" (duty_cycle)
+            : "0" (duty_cycle),
+              "y" (g_color),
+              "z" (&g_cie_table[0]) ,
+              [ocr2]       "M" _SFR_IO_ADDR(OCR2),
+              [portfl]     "M" _SFR_IO_ADDR(PORTFL),
+              [mask_red]   "M" (MASK_RED),
+              [mask_green] "M" (MASK_GREEN),
+              [mask_blue]  "M" (MASK_BLUE)
+            : "r16"
+    );
+}
+
+
+static unsigned short get_seed()
+{
+    unsigned short seed = 0;
+    unsigned short *p = (unsigned short*) (RAMEND + 1);
+    extern unsigned short __heap_start;
+
+    while (p >= &__heap_start + 1)
+        seed ^= * (--p);
+
+    return seed;
+}
+
+
+// hardware initialization
+static void init_hw(void) {
+    srand(get_seed());
+    DDRFL |= MASK_RED | MASK_GREEN | MASK_BLUE; // set color pin to output mode
+    init_timer0();
+    init_timer2();
     sei();
-
 }
 
+int main(int argc, char *argv[]) {
+    init_hw();
 
-void wait(int ms){
-    TCCR2 = 0x0D;          // CTC Mode, clk/128
-    OCR2 = (F_CPU/128000); // 1000Hz
+    // to avoid a compiler warning regarding an unused function, here is a quick
+    // demostration of the set_color_preset() function
+    set_color_preset(color_black); // on startup, it's black anyway
 
-    for(; ms>0; ms--) {
-        while(!(TIFR&0x80)); // wait for compare match flag
-        TIFR=0x80;           // reset flag
+    // quick color test at startup (15 seconds)
+    for (color_preset_t preset = color_red; preset < color_MAX; ++preset) {
+         color_fade_preset(preset, 128, 16);
     }
+
+    while(1) {
+        // fade through all color presets (except for black)
+        for (color_preset_t preset = color_red; preset < color_MAX; ++preset) {
+            // fades to a color for two minutes, holds that color for one minute
+            color_fade_preset(preset, 255, 470);
+            wait(60000);
+        }
+
+        // fade to a random color to have a nice variety
+        color_fade_random(255, 470);
+        wait(60000);
+    };
 }
 
-void fadeToColor(uint8_t *fadeColor, uint8_t steps) {
-    uint8_t i;
-    int16_t helpColor[3], addColor[3];
-
-    if (!steps)
-        return;
-
-    helpColor[0] = color[0]*128;
-    helpColor[1] = color[1]*128;
-    helpColor[2] = color[2]*128;
-
-    addColor[0] = ((fadeColor[0]*128)-helpColor[0])/(int16_t)steps;
-    addColor[1] = ((fadeColor[1]*128)-helpColor[1])/(int16_t)steps;
-    addColor[2] = ((fadeColor[2]*128)-helpColor[2])/(int16_t)steps;
-
-    for (i = 0; i < steps; ++i) {
-        helpColor[0] += addColor[0];
-        helpColor[1] += addColor[1];
-        helpColor[2] += addColor[2];
-        color[0] = (helpColor[0]+64)/128;
-        color[1] = (helpColor[1]+64)/128;
-        color[2] = (helpColor[2]+64)/128;
-        wait(20);
-    }
-    color[0] = fadeColor[0];
-    color[1] = fadeColor[1];
-    color[2] = fadeColor[2];
-}
-
-void mainColors() {
-    uint8_t i;
-    for (i = 0; i < 255; i++) {
-        color[0] = 255-i;
-        color[1] = i;
-        wait(20);
-    }
-    for (i = 0; i < 255; i++) {
-        color[1] = 255-i;
-        color[2] = i;
-        wait(20);
-    }
-    for (i = 0; i < 255; i++) {
-        color[2] = 255-i;
-        color[0] = i;
-        wait(20);
-    }
-}
-
-void someColors() {
-    fadeToColor((uint8_t[]){255, 255, 255}, 128);
-    wait(3000);
-    fadeToColor((uint8_t[]){150,  34,  44}, 128);
-    wait(3000);
-    fadeToColor((uint8_t[]){255, 255,   0}, 128);
-    wait(3000);
-    fadeToColor((uint8_t[]){255,   0, 255}, 128);
-    wait(3000);
-    fadeToColor((uint8_t[]){  0, 255, 255}, 128);
-    wait(3000);
-    fadeToColor((uint8_t[]){255,   0,   0}, 128);
-}
-
-#define BIT_S(var,b) ((var&(1<<b))?1:0)
-
-uint8_t myrandom(){
-    static uint16_t muh = 0xAA;
-    uint8_t x;
-    for (x=0; x<8; x++) {
-        muh = (muh<<1) ^ BIT_S(muh,1) ^ BIT_S(muh,8) ^ BIT_S(muh,9) ^ BIT_S(muh,13) ^ BIT_S(muh,15);
-    }
-    return (uint8_t) muh;
-}
-
-void randomColors() {
-    uint8_t i;
-    for (i = 0; i < 100; i++) {
-        fadeToColor((uint8_t[]){myrandom(), myrandom(), myrandom()}, 128);
-        wait(1000);
-    }
-}
-
-int main(void) {
-    /* initialization */
-    DDRFL = 0xff;
-    PORTFL = 0x00;
-
-    timer1_on();
-
-    while (1) {
-        mainColors();
-        mainColors();
-        mainColors();
-        someColors();
-        randomColors();
-    }
-}
+// vim: ts=4:sts=4:sw=4:et
