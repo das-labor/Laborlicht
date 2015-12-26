@@ -135,7 +135,7 @@ color_fade(uint8_t *color, uint8_t steps, uint16_t delay);
 ```
 Just like:
 ```C
-unsigned char my_color = {192 /*red*/, 64 /*green*/, 16 /*blue*/};
+unsigned char my_color[] = {192 /*red*/, 64 /*green*/, 16 /*blue*/};
 color_fade(my_color, 255, 235);
 ```
 
