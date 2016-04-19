@@ -47,7 +47,7 @@ typedef enum color_preset_e {
     color_MAX
 } color_preset_t;
 
-unsigned char const PROGMEM g_color_presets[color_MAX][channel_MAX] = {
+volatile unsigned char const PROGMEM g_color_presets[color_MAX][channel_MAX] = {
     {  0,   0,   0},
     {255,   0,   0},
     {255, 255,   0},
