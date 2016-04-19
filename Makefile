@@ -9,11 +9,18 @@ DEFS          ?= -DF_CPU=16000000
 CFLAGS        += -MMD -g -std=c99 -mmcu=$(MCU_TARGET) $(OPTIMIZE) $(WARNINGS) $(DEFS)
 ASFLAGS       ?= -g $(DEFS)
 LDFLAGS       ?= -Wl,-Map,$(OUT).map
+PROG          ?= usbasp
+PROG_DEV      ?= # e.g. "/dev/ttyUSB0"
+PROG_BAUD     ?= # e.g. "19200"
 
 # External Tools
 OBJCOPY       ?= avr-objcopy
 OBJDUMP       ?= avr-objdump
-FLASH         ?= avrdude -c usbasp -p $(MCU_TARGET) -U flash:w:image.hex
+FLASH         ?= avrdude -c $(PROG) \
+		 -p $(MCU_TARGET) \
+		 $(if $(PROG_DEV),-P $(PROG_DEV)) \
+		 $(if $(PROG_BAUD),-b $(PROG_BAUD)) \
+		 -U flash:w:$(OUT).hex:i
 
 #############################################################################
 # Rules
@@ -24,7 +31,7 @@ clean:
 	rm -rf *.srec $(OUT).elf
 
 flash: $(OUT).hex
-	$(FLASHCMD)
+	$(FLASH)
 
 #############################################################################
 # Building Rules
