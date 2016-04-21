@@ -47,7 +47,7 @@ typedef enum color_preset_e {
     color_MAX
 } color_preset_t;
 
-volatile unsigned char const PROGMEM g_color_presets[color_MAX][channel_MAX] = {
+unsigned char const PROGMEM g_color_presets[color_MAX][channel_MAX] = {
     {  0,   0,   0},
     {255,   0,   0},
     {255, 255,   0},
@@ -58,7 +58,7 @@ volatile unsigned char const PROGMEM g_color_presets[color_MAX][channel_MAX] = {
     {255, 255, 255}
 };
 
-unsigned char g_color[channel_MAX] = {0};
+volatile unsigned char g_color[channel_MAX] = {0};
 
 void static set_color_preset(color_preset_t preset) {
     g_color[channel_red]   = PW(g_color_presets[preset][channel_red]);
