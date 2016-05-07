@@ -5,28 +5,50 @@
 #include <avr/pgmspace.h>
 #include <stdlib.h>
 
-#define MASK_RED   _BV(PC0)
-#define MASK_GREEN _BV(PC1)
-#define MASK_BLUE  _BV(PC2)
+#define xstr(s) str(s)
+#define str(s) #s
+
 #define PORTFL PORTC
 #define DDRFL  DDRC
+
+#define MASK_RED     _BV(PC0)
+#define MASK_GREEN   _BV(PC1)
+#define MASK_BLUE    _BV(PC2)
+// bitwise "and" to avoid int promotion (important for "M" constraint)
+#define INV_MASK_ALL (~(MASK_RED | MASK_GREEN | MASK_BLUE) & 0xff)
 
 #define PW(a) pgm_read_word(&(a))
 
 // wait timer
 static void init_timer0(void) {
+#if defined(__AVR_ATmega8__) || \
+    defined(__AVR_ATmega8A__)
+#    define MY_TIFR TIFR
     // clk/64
     TCCR0 = _BV(CS01) | _BV(CS00);
+#elif defined(__AVR_ATmega48__)   || \
+      defined(__AVR_ATmega48P__)  || \
+      defined(__AVR_ATmega88__)   || \
+      defined(__AVR_ATmega88P__)  || \
+      defined(__AVR_ATmega168__)  || \
+      defined(__AVR_ATmega168P__) || \
+      defined(__AVR_ATmega328__)  || \
+      defined(__AVR_ATmega328P__)
+#    define MY_TIFR TIFR0
+    // clk/64
+    TCCR0B = _BV(CS01) | _BV(CS00);
+#else
+#    error MCU not supported
+#endif
 }
 
 static void wait(unsigned int ms){
-    for (; ms--;){
-        TCNT0 = 6;                   // overflow after 250 ticks, 1000 Hz
-        while (!(TIFR & _BV(TOV0))); // wait for timer overflow flag
-        TIFR = _BV(TOV0);            // reset overflow flag
+    for (; ms--;) {
+        TCNT0 = 6;                      // overflow after 250 ticks, 1000 Hz
+        while (!(MY_TIFR & _BV(TOV0))); // wait for timer overflow flag
+        MY_TIFR = _BV(TOV0);            // reset overflow flag
     }
 }
-
 
 typedef enum color_channel_e {
     channel_red,
@@ -151,65 +173,94 @@ unsigned char const PROGMEM g_cie_table[256] = {
 
 // ISR timer
 static void init_timer2(void) {
+#if defined(__AVR_ATmega8__) || \
+    defined(__AVR_ATmega8A__)
+#    define TIMER_ISR TIMER2_COMP_vect
+#    define OUT_STS out
+#    define OCR OCR2
     // CTC mode, OC2 disconnected, clk/8
     TCCR2 = _BV(WGM21) | _BV(CS21);
     // initialize compare match and counter registers
     OCR2 = PW(g_cie_table[0]);
     TCNT2 = 0;
     // clear compare match flag and enable compare match interrupt handler
-    TIFR   |= _BV(OCF2);
-    TIMSK  |= _BV(OCIE2);
+    TIFR  |= _BV(OCF2);
+    TIMSK |= _BV(OCIE2);
+#elif defined(__AVR_ATmega48__)   || \
+      defined(__AVR_ATmega48P__)  || \
+      defined(__AVR_ATmega88__)   || \
+      defined(__AVR_ATmega88P__)  || \
+      defined(__AVR_ATmega168__)  || \
+      defined(__AVR_ATmega168P__) || \
+      defined(__AVR_ATmega328__)  || \
+      defined(__AVR_ATmega328P__)
+#    define TIMER_ISR TIMER2_COMPA_vect
+#    define OUT_STS sts
+#    define OCR OCR2A
+    // CTC mode, OC2A/OC2B disconnected, clk/8
+    TCCR2A = _BV(WGM21);
+    TCCR2B = _BV(CS21);
+    // initialize compare match and counter registers
+    OCR2A = PW(g_cie_table[0]);
+    TCNT2 = 0;
+    // clear compare match flag and enable compare match interrupt handler
+    TIFR2  |= _BV(OCF2A);
+    TIMSK2 |= _BV(OCIE2A);
+#else
+#    error MCU not supported
+#endif
 }
 
-ISR(TIMER2_COMP_vect) {
+ISR(TIMER_ISR) {
     // duty cycle from 0 (0%) to 255 (100%)
     static unsigned char duty_cycle = 0;
 
     __asm__ volatile(
-        "isr_start:"                         "\n\t"
-            "clr r16"                        "\n\t"
-            "inc %[duty_cycle]"              "\n\t"
+        "isr_start:"                            "\n\t"
+            "in r16,%[portfl]"                  "\n\t"
+            "andi r16,%[inv_mask_all]"          "\n\t"
+            "inc %[duty_cycle]"                 "\n\t"
 
-        "cie_to_ocr2:"                       "\n\t"
-            "add r30,%[duty_cycle]; ZL"      "\n\t"
-            "adc r31,__zero_reg__ ; ZH"      "\n\t"
-            "lpm __tmp_reg__,Z"              "\n\t"
-            "out %[ocr2],__tmp_reg__"        "\n\t"
+        "cie_to_ocr2:"                          "\n\t"
+            "add r30,%[duty_cycle]; ZL"         "\n\t"
+            "adc r31,__zero_reg__ ; ZH"         "\n\t"
+            "lpm __tmp_reg__,Z"                 "\n\t"
+            xstr(OUT_STS) " %[ocr],__tmp_reg__" "\n\t"
 
-        "red_cmp:"                           "\n\t"
-            "ld __tmp_reg__,Y+"              "\n\t"
-            "cp __tmp_reg__,%[duty_cycle]"   "\n\t"
-            "brlo green_cmp"                 "\n\t"
-            "ori r16,%[mask_red]"            "\n\t"
+        "red_cmp:"                              "\n\t"
+            "ld __tmp_reg__,Y+"                 "\n\t"
+            "cp __tmp_reg__,%[duty_cycle]"      "\n\t"
+            "brlo green_cmp"                    "\n\t"
+            "ori r16,%[mask_red]"               "\n\t"
 
-        "green_cmp:"                         "\n\t"
-            "ld __tmp_reg__,Y+"              "\n\t"
-            "cp __tmp_reg__,%[duty_cycle]"   "\n\t"
-            "brlo blue_cmp"                  "\n\t"
-            "ori r16,%[mask_green]"          "\n\t"
+        "green_cmp:"                            "\n\t"
+            "ld __tmp_reg__,Y+"                 "\n\t"
+            "cp __tmp_reg__,%[duty_cycle]"      "\n\t"
+            "brlo blue_cmp"                     "\n\t"
+            "ori r16,%[mask_green]"             "\n\t"
 
-        "blue_cmp:"                          "\n\t"
-            "ld __tmp_reg__,Y+"              "\n\t"
-            "cp __tmp_reg__,%[duty_cycle]"   "\n\t"
-            "brlo color_set"                 "\n\t"
-            "ori r16,%[mask_blue]"           "\n\t"
+        "blue_cmp:"                             "\n\t"
+            "ld __tmp_reg__,Y+"                 "\n\t"
+            "cp __tmp_reg__,%[duty_cycle]"      "\n\t"
+            "brlo color_set"                    "\n\t"
+            "ori r16,%[mask_blue]"              "\n\t"
 
-        "color_set:"                         "\n\t"
-            "out %[portfl],r16"              "\n\t"
+        "color_set:"                            "\n\t"
+            "out %[portfl],r16"                 "\n\t"
 
             : [duty_cycle] "+d" (duty_cycle)
             : "0" (duty_cycle),
               "y" (g_color),
               "z" (&g_cie_table[0]) ,
-              [ocr2]       "M" _SFR_IO_ADDR(OCR2),
-              [portfl]     "M" _SFR_IO_ADDR(PORTFL),
-              [mask_red]   "M" (MASK_RED),
-              [mask_green] "M" (MASK_GREEN),
-              [mask_blue]  "M" (MASK_BLUE)
+              [ocr]          "M" _SFR_IO_ADDR(OCR),
+              [portfl]       "M" _SFR_IO_ADDR(PORTFL),
+              [mask_red]     "M" (MASK_RED),
+              [mask_green]   "M" (MASK_GREEN),
+              [mask_blue]    "M" (MASK_BLUE),
+              [inv_mask_all] "M" (INV_MASK_ALL)
             : "r16"
     );
 }
-
 
 static unsigned short get_seed()
 {
@@ -223,7 +274,6 @@ static unsigned short get_seed()
     return seed;
 }
 
-
 // hardware initialization
 static void init_hw(void) {
     srand(get_seed());
@@ -236,7 +286,7 @@ static void init_hw(void) {
 int main(int argc, char *argv[]) {
     init_hw();
 
-    // to avoid a compiler warning regarding an unused function, here is a quick
+    // to avoid a compiler warnings regarding unused functions, here is a quick
     // demostration of the set_color_preset() function
     set_color_preset(color_black); // on startup, it's black anyway
 
