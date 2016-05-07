@@ -16,11 +16,21 @@ PROG_BAUD     ?= # e.g. "19200"
 # External Tools
 OBJCOPY       ?= avr-objcopy
 OBJDUMP       ?= avr-objdump
-FLASH         ?= avrdude -c $(PROG) \
+FLASHCMD      ?= avrdude -c $(PROG) \
 		 -p $(MCU_TARGET) \
 		 $(if $(PROG_DEV),-P $(PROG_DEV)) \
 		 $(if $(PROG_BAUD),-b $(PROG_BAUD)) \
 		 -U flash:w:$(OUT).hex:i
+LFUSE         ?= 0x3f # on ATMega88: F7
+HFUSE         ?= 0xc3 # on ATMega88: D4
+EFUSE         ?=      # on ATMega88: F9
+FUSECMD       ?= echo avrdude -c $(PROG) \
+                 -p $(MCU_TARGET) -B 100 \
+                 $(if $(PROG_DEV),-P $(PROG_DEV)) \
+                 $(if $(PROG_BAUD),-b $(PROG_BAUD)) \
+		 -U lfuse:w:$(strip $(LFUSE)):m \
+		 -U hfuse:w:$(strip $(HFUSE)):m \
+                 $(if $(EFUSE),-U efuse:w:$(strip $(EFUSE)):m)
 
 #############################################################################
 # Rules
@@ -30,8 +40,11 @@ clean:
 	rm -rf $(OUT) *.o *.d *.lst *.map $(OUT).hex $(OUT)_eeprom.hex *.bin *.srec
 	rm -rf *.srec $(OUT).elf
 
+fuse:
+	$(FUSECMD)
+
 flash: $(OUT).hex
-	$(FLASH)
+	$(FLASHCMD)
 
 #############################################################################
 # Building Rules
