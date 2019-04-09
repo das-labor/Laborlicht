@@ -8,14 +8,14 @@
 #define xstr(s) str(s)
 #define str(s) #s
 
-#define PORTFL PORTC
-#define DDRFL  DDRC
+#define PORTFL PORTB
+#define DDRFL  DDRB
 
-#define MASK_RED     _BV(PC0)
-#define MASK_GREEN   _BV(PC1)
-#define MASK_BLUE    _BV(PC2)
+#define INV_MASK_RED   (~(_BV(PB0)) & 0xff)
+#define INV_MASK_GREEN (~(_BV(PB1)) & 0xff)
+#define INV_MASK_BLUE  (~(_BV(PB2)) & 0xff)
 // bitwise "and" to avoid int promotion (important for "M" constraint)
-#define INV_MASK_ALL (~(MASK_RED | MASK_GREEN | MASK_BLUE) & 0xff)
+#define MASK_ALL ((_BV(PB0) | _BV(PB1) | _BV(PB2)) & 0xff)
 
 #define PW(a) pgm_read_word(&(a))
 
@@ -218,7 +218,7 @@ ISR(TIMER_ISR) {
     __asm__ volatile(
         "isr_start:"                            "\n\t"
             "in r16,%[portfl]"                  "\n\t"
-            "andi r16,%[inv_mask_all]"          "\n\t"
+            "ori r16,%[mask_all]"               "\n\t"
             "inc %[duty_cycle]"                 "\n\t"
 
         "cie_to_ocr2:"                          "\n\t"
@@ -231,19 +231,19 @@ ISR(TIMER_ISR) {
             "ld __tmp_reg__,Y+"                 "\n\t"
             "cp __tmp_reg__,%[duty_cycle]"      "\n\t"
             "brlo green_cmp"                    "\n\t"
-            "ori r16,%[mask_red]"               "\n\t"
+            "andi r16,%[inv_mask_red]"          "\n\t"
 
         "green_cmp:"                            "\n\t"
             "ld __tmp_reg__,Y+"                 "\n\t"
             "cp __tmp_reg__,%[duty_cycle]"      "\n\t"
             "brlo blue_cmp"                     "\n\t"
-            "ori r16,%[mask_green]"             "\n\t"
+            "andi r16,%[inv_mask_green]"        "\n\t"
 
         "blue_cmp:"                             "\n\t"
             "ld __tmp_reg__,Y+"                 "\n\t"
             "cp __tmp_reg__,%[duty_cycle]"      "\n\t"
             "brlo color_set"                    "\n\t"
-            "ori r16,%[mask_blue]"              "\n\t"
+            "andi r16,%[inv_mask_blue]"         "\n\t"
 
         "color_set:"                            "\n\t"
             "out %[portfl],r16"                 "\n\t"
@@ -252,12 +252,12 @@ ISR(TIMER_ISR) {
             : "0" (duty_cycle),
               "y" (g_color),
               "z" (&g_cie_table[0]) ,
-              [ocr]          "M" _SFR_IO_ADDR(OCR),
-              [portfl]       "M" _SFR_IO_ADDR(PORTFL),
-              [mask_red]     "M" (MASK_RED),
-              [mask_green]   "M" (MASK_GREEN),
-              [mask_blue]    "M" (MASK_BLUE),
-              [inv_mask_all] "M" (INV_MASK_ALL)
+              [ocr]            "M" _SFR_IO_ADDR(OCR),
+              [portfl]         "M" _SFR_IO_ADDR(PORTFL),
+              [inv_mask_red]   "M" (INV_MASK_RED),
+              [inv_mask_green] "M" (INV_MASK_GREEN),
+              [inv_mask_blue]  "M" (INV_MASK_BLUE),
+              [mask_all]       "M" (MASK_ALL)
             : "r16"
     );
 }
@@ -277,7 +277,7 @@ static unsigned short get_seed()
 // hardware initialization
 static void init_hw(void) {
     srand(get_seed());
-    DDRFL |= MASK_RED | MASK_GREEN | MASK_BLUE; // set color pin to output mode
+    DDRFL |= MASK_ALL; // set color pins to output mode
     init_timer0();
     init_timer2();
     sei();
