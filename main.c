@@ -11,11 +11,9 @@
 #define PORTFL PORTC
 #define DDRFL  DDRC
 
-#define MASK_RED     _BV(PC0)
-#define MASK_GREEN   _BV(PC1)
-#define MASK_BLUE    _BV(PC2)
-// bitwise "and" to avoid int promotion (important for "M" constraint)
-#define INV_MASK_ALL (~(MASK_RED | MASK_GREEN | MASK_BLUE) & 0xff)
+#define BIT_RED   (PC0)
+#define BIT_GREEN (PC1)
+#define BIT_BLUE  (PC2)
 
 #define PW(a) pgm_read_word(&(a))
 
@@ -216,11 +214,6 @@ ISR(TIMER_ISR) {
     static unsigned char duty_cycle = 0;
 
     __asm__ volatile(
-        "isr_start:"                            "\n\t"
-            "in r16,%[portfl]"                  "\n\t"
-            "andi r16,%[inv_mask_all]"          "\n\t"
-            "inc %[duty_cycle]"                 "\n\t"
-
         "cie_to_ocr2:"                          "\n\t"
             "add r30,%[duty_cycle]; ZL"         "\n\t"
             "adc r31,__zero_reg__ ; ZH"         "\n\t"
@@ -230,35 +223,42 @@ ISR(TIMER_ISR) {
         "red_cmp:"                              "\n\t"
             "ld __tmp_reg__,Y+"                 "\n\t"
             "cp __tmp_reg__,%[duty_cycle]"      "\n\t"
-            "brlo green_cmp"                    "\n\t"
-            "ori r16,%[mask_red]"               "\n\t"
+            "brlo red_off"                      "\n\t"
+            "sbi %[portfl],%[bit_red]"          "\n\t"
+            "rjmp green_cmp"                    "\n\t"
+        "red_off:"                              "\n\t"
+            "cbi %[portfl],%[bit_red]"          "\n\t"
 
         "green_cmp:"                            "\n\t"
             "ld __tmp_reg__,Y+"                 "\n\t"
             "cp __tmp_reg__,%[duty_cycle]"      "\n\t"
-            "brlo blue_cmp"                     "\n\t"
-            "ori r16,%[mask_green]"             "\n\t"
+            "brlo green_off"                    "\n\t"
+            "sbi %[portfl],%[bit_green]"        "\n\t"
+            "rjmp blue_cmp"                     "\n\t"
+        "green_off:"                            "\n\t"
+            "cbi %[portfl],%[bit_green]"        "\n\t"
 
         "blue_cmp:"                             "\n\t"
             "ld __tmp_reg__,Y+"                 "\n\t"
             "cp __tmp_reg__,%[duty_cycle]"      "\n\t"
-            "brlo color_set"                    "\n\t"
-            "ori r16,%[mask_blue]"              "\n\t"
+            "brlo blue_off"                     "\n\t"
+            "sbi %[portfl],%[bit_blue]"         "\n\t"
+            "rjmp finish"                       "\n\t"
+        "blue_off:"                             "\n\t"
+            "cbi %[portfl],%[bit_blue]"         "\n\t"
 
-        "color_set:"                            "\n\t"
-            "out %[portfl],r16"                 "\n\t"
+        "finish:"                               "\n\t"
+            "inc %[duty_cycle]"                 "\n\t"
 
             : [duty_cycle] "+d" (duty_cycle)
             : "0" (duty_cycle),
               "y" (g_color),
               "z" (&g_cie_table[0]) ,
-              [ocr]          "M" _SFR_IO_ADDR(OCR),
-              [portfl]       "M" _SFR_IO_ADDR(PORTFL),
-              [mask_red]     "M" (MASK_RED),
-              [mask_green]   "M" (MASK_GREEN),
-              [mask_blue]    "M" (MASK_BLUE),
-              [inv_mask_all] "M" (INV_MASK_ALL)
-            : "r16"
+              [ocr]       "M" _SFR_IO_ADDR(OCR),
+              [portfl]    "M" _SFR_IO_ADDR(PORTFL),
+              [bit_red]   "M" (BIT_RED),
+              [bit_green] "M" (BIT_GREEN),
+              [bit_blue]  "M" (BIT_BLUE)
     );
 }
 
@@ -277,7 +277,7 @@ static unsigned short get_seed()
 // hardware initialization
 static void init_hw(void) {
     srand(get_seed());
-    DDRFL |= MASK_RED | MASK_GREEN | MASK_BLUE; // set color pin to output mode
+    DDRFL |= _BV(BIT_RED) | _BV(BIT_GREEN) | _BV(BIT_BLUE); // set color pins to output mode
     init_timer0();
     init_timer2();
     sei();
@@ -286,8 +286,8 @@ static void init_hw(void) {
 int main(int argc, char *argv[]) {
     init_hw();
 
-    // to avoid a compiler warnings regarding unused functions, here is a quick
-    // demostration of the set_color_preset() function
+    // to avoid compiler warnings regarding unused functions, here is a quick
+    // demonstration of the set_color_preset() function
     set_color_preset(color_black); // on startup, it's black anyway
 
     // quick color test at startup (15 seconds)
