@@ -1,5 +1,5 @@
 # Default values
-OBJ            = main.o
+OBJ            = hw.o laborlicht.o main.o
 OUT           ?= image
 MCU_TARGET    ?= atmega8
 MCU_CC        ?= avr-gcc
